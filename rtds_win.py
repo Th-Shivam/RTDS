@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# Windows-compatible version (shebang removed)
 from scapy.all import *
 from scapy.layers.inet import IP, TCP
 from scapy.layers.l2 import ARP
@@ -11,7 +11,7 @@ from collections import OrderedDict
 parser = argparse.ArgumentParser(description="RTDS - Real-Time Threat Detection System")
 parser.add_argument("--threshold", type=int, default=100, help="DDoS packet threshold (pps)")
 parser.add_argument("--log", type=str, default="alerts.log", help="Log file path")
-parser.add_argument("--iface", default=None, help="Network interface to use (e.g., eth0)")
+parser.add_argument("--iface", default=None, help="Network interface to use (e.g., Wi-Fi)")
 args = parser.parse_args()
 
 DDOS_THRESHOLD = args.threshold
