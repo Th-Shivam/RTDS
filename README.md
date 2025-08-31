@@ -1,6 +1,6 @@
 <div align="center">
   
-# 🛡️ RTDS - Real-Time Detection System
+# 🛡️ RTDS - Real-Time Threat Detection System
 
  </div> 
 <div align="center">
