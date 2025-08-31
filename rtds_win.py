@@ -1,88 +1,157 @@
-# Windows-compatible version (shebang removed)
+# Enhanced RTDS v2.0 - Windows-ready
+# Detects: DDoS (volumetric + SYN flood) & MITM (ARP spoofing)
+
 from scapy.all import *
 from scapy.layers.inet import IP, TCP
 from scapy.layers.l2 import ARP
-import time
-import os
-import argparse
-from collections import OrderedDict
+import time, os, argparse
+from collections import OrderedDict, defaultdict
+import threading
 
-# Configuration
-parser = argparse.ArgumentParser(description="RTDS - Real-Time Threat Detection System")
-parser.add_argument("--threshold", type=int, default=100, help="DDoS packet threshold (pps)")
-parser.add_argument("--log", type=str, default="alerts.log", help="Log file path")
-parser.add_argument("--iface", default=None, help="Network interface to use (e.g., Wi-Fi)")
+# ----------------- Configuration -----------------
+parser = argparse.ArgumentParser(description="Enhanced RTDS - DDoS & MITM Detection")
+parser.add_argument("--ddos-threshold", type=int, default=100, help="DDoS packet threshold (pps)")
+parser.add_argument("--syn-threshold", type=int, default=50, help="SYN flood threshold (pps)")
+parser.add_argument("--log", type=str, default="rtds_alerts.log", help="Log file path")
+parser.add_argument("--iface", default="Wi-Fi", help="Network interface (Windows example: Wi-Fi)")
 args = parser.parse_args()
 
-DDOS_THRESHOLD = args.threshold
+DDOS_THRESHOLD = args.ddos_threshold
+SYN_THRESHOLD = args.syn_threshold
 LOG_FILE = args.log
 MAX_ARP_ENTRIES = 1000
-MAX_LOG_SIZE = 10 * 1024 * 1024  # 10 MB
 
-# State
-ddos_counter = 0
-start_time = time.time()
+# ----------------- State -----------------
+ddos_packets = defaultdict(int)
+syn_packets = defaultdict(int)
 arp_table = OrderedDict()
+packet_count = 0
+attack_count = 0
+start_time = time.time()
+last_reset = time.time()
 
-# Clear screen and show banner
-print("\033[2J\033[H")
-print("""
-🔐 RTDS v1.0 - Real-Time Threat Detection System
-🛡️  Monitoring: DDoS & MITM Attacks
-🕒 Starting network monitoring...
---------------------------------------------------
-""")
+# Local IP of the monitoring machine
+LOCAL_IP = get_if_addr(args.iface)
 
-def log_alert(message):
+# ----------------- Functions -----------------
+def log_alert(message, attack_type="UNKNOWN"):
     try:
-        if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > MAX_LOG_SIZE:
-            os.rename(LOG_FILE, f"{LOG_FILE}.{time.ctime().replace(' ', '_')}")
-        with open(LOG_FILE, "a") as f:
-            f.write(f"{time.ctime()} - {message}\n")
-    except IOError as e:
-        print(f"\033[91m[!] Error writing to log file: {e}\033[0m")
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with open(LOG_FILE, "a", encoding='utf-8') as f:
+            f.write(f"[{timestamp}] [{attack_type}] {message}\n")
+    except Exception as e:
+        print(f"[!] Log error: {e}")
 
-def detect_attacks(packet):
-    global ddos_counter, start_time
-
+def detect_ddos_attack(packet):
+    global packet_count, last_reset, attack_count
+    if not packet.haslayer(IP):
+        return
+    
+    src_ip = packet[IP].src
     current_time = time.time()
 
-    # --- DDoS Detection (SYN Flood) ---
-    if packet.haslayer(TCP) and packet[TCP].flags == "S":  # Check for SYN packets
-        ddos_counter += 1
-        if current_time - start_time >= 1:
-            if ddos_counter > DDOS_THRESHOLD:
-                print(f"\033[91m🚨 ALERT: DDoS Attack Detected! Rate: {ddos_counter} pps\033[0m")
-                log_alert(f"DDoS: {ddos_counter} pps (Possible SYN Flood)")
-            ddos_counter = 0
-            start_time = current_time
+    # Ignore own machine's packets
+    if src_ip == LOCAL_IP:
+        return
 
-    # --- MITM Detection (ARP Spoofing) ---
-    if packet.haslayer(ARP) and (packet[ARP].op == 2 or packet[ARP].psrc == packet[ARP].pdst):
-        ip = packet[ARP].psrc
-        mac = packet[ARP].hwsrc
+    # Volumetric DDoS
+    ddos_packets[src_ip] += 1
+    packet_count += 1
 
-        if ip == "0.0.0.0" or ip.startswith("169.254"):
-            return
+    # Count SYN packets
+    if packet.haslayer(TCP) and packet[TCP].flags == 2:  # SYN flag
+        syn_packets[src_ip] += 1
 
-        if len(arp_table) >= MAX_ARP_ENTRIES:
-            arp_table.popitem(last=False)
+    # Check every second
+    if current_time - last_reset >= 1.0:
+        for ip, count in ddos_packets.items():
+            if count > DDOS_THRESHOLD:
+                attack_count += 1
+                alert_msg = f"🚨 DDoS Attack Detected from {ip} - Rate: {count} packets/sec"
+                print(f"\033[91m{alert_msg}\033[0m")
+                log_alert(alert_msg, "DDOS")
+        for ip, count in syn_packets.items():
+            if count > SYN_THRESHOLD:
+                attack_count += 1
+                alert_msg = f"🚨 SYN Flood from {ip} - Rate: {count} SYN packets/sec"
+                print(f"\033[91m{alert_msg}\033[0m")
+                log_alert(alert_msg, "SYN_FLOOD")
+        ddos_packets.clear()
+        syn_packets.clear()
+        last_reset = current_time
 
-        if ip in arp_table:
-            if arp_table[ip] != mac:
-                print(f"\033[93m⚠️  ALERT: MITM (ARP Spoofing) Detected!\033[0m IP: {ip} | Old MAC: {arp_table[ip]} → New MAC: {mac}")
-                log_alert(f"MITM: IP {ip} changed MAC from {arp_table[ip]} to {mac}")
+def detect_mitm_attack(packet):
+    global attack_count
+    if not packet.haslayer(ARP):
+        return
+
+    arp_op = packet[ARP].op
+    src_ip = packet[ARP].psrc
+    src_mac = packet[ARP].hwsrc
+    dst_ip = packet[ARP].pdst
+
+    if not src_ip or src_ip == "0.0.0.0" or src_ip.startswith("169.254"):
+        return
+
+    # Manage ARP table
+    if len(arp_table) >= MAX_ARP_ENTRIES:
+        arp_table.popitem(last=False)
+
+    # ARP reply
+    if arp_op == 2:
+        if src_ip in arp_table:
+            if arp_table[src_ip] != src_mac:
+                attack_count += 1
+                alert_msg = f"⚠ MITM/ARP Spoofing Detected! IP: {src_ip} | Old MAC: {arp_table[src_ip]} → New MAC: {src_mac}"
+                print(f"\033[93m{alert_msg}\033[0m")
+                log_alert(alert_msg, "MITM")
         else:
-            arp_table[ip] = mac
+            arp_table[src_ip] = src_mac
+            print(f"\033[92m✓ New device mapped: {src_ip} → {src_mac}\033[0m")
 
-# Start monitoring
-print("[*] Monitoring live traffic... (Press Ctrl+C to stop)")
+    # Gratuitous ARP detection
+    if arp_op in [1,2] and src_ip in arp_table and arp_table[src_ip] != src_mac:
+        alert_msg = f"📡 Suspicious ARP detected: {src_ip} changed MAC {arp_table[src_ip]} → {src_mac}"
+        print(f"\033[94m{alert_msg}\033[0m")
+        log_alert(alert_msg, "SUSPICIOUS_ARP")
+
+def analyze_packet(packet):
+    try:
+        detect_ddos_attack(packet)
+        detect_mitm_attack(packet)
+    except Exception as e:
+        print(f"[!] Analysis error: {e}")
+
+def show_statistics():
+    uptime = int(time.time() - start_time)
+    hours, minutes, seconds = uptime // 3600, (uptime % 3600)//60, uptime %60
+    print(f"\033[92m📊 Runtime: {hours:02d}:{minutes:02d}:{seconds:02d} | Packets: {packet_count} | Attacks: {attack_count} | ARP Entries: {len(arp_table)}\033[0m")
+    threading.Timer(10.0, show_statistics).start()
+
+# ----------------- Startup -----------------
+print("\033[2J\033[H")
+print("""
+🔐 Enhanced RTDS v2.0 - Windows Ready
+🛡 Detection: DDoS (volumetric + SYN) & MITM/ARP Spoofing
+--------------------------------------------------
+""")
+print(f"[*] Interface: {args.iface} | Local IP: {LOCAL_IP}")
+print(f"[*] DDoS Threshold: {DDOS_THRESHOLD} pps | SYN Threshold: {SYN_THRESHOLD} pps")
+print(f"[*] Log File: {LOG_FILE}\n")
+print("[*] Starting monitoring... (Press Ctrl+C to stop)\n")
+
+# Start stats timer
+threading.Timer(10.0, show_statistics).start()
+
+# ----------------- Start Sniffing -----------------
 try:
-    sniff(filter="arp or tcp", prn=detect_attacks, store=0, iface=args.iface, promisc=True)
-except Exception as e:
-    print(f"\033[91m[!] Error in sniffing: {e}\033[0m")
+    sniff(filter="arp or tcp", prn=analyze_packet, store=0, iface=args.iface)
+except PermissionError:
+    print("[!] Permission denied! Run as Administrator/Root")
 except KeyboardInterrupt:
-    print("\n[*] Stopping monitor...")
-
-print("\n[*] RTDS Scan Complete.")
-print(f"📄 Logs saved in: {LOG_FILE}")
+    print("\n🛑 MONITORING STOPPED")
+    uptime = int(time.time() - start_time)
+    print(f"📈 Total Runtime: {uptime//3600:02d}:{(uptime%3600)//60:02d}:{uptime%60:02d}")
+    print(f"📦 Total Packets Analyzed: {packet_count} | 🚨 Total Attacks Detected: {attack_count}")
+    print(f"🗂 ARP Table Entries: {len(arp_table)}")
+    print(f"📄 Logs saved in: {LOG_FILE}")
