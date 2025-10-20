@@ -2,12 +2,14 @@
 from rtds_monitor import *  # Import existing RTDS functionality
 from port_scan_detector import PortScanDetector
 from phishing_detector import PhishingDetector
+from dns_tunnel_detector import DNSTunnelDetector
 import threading
 
 class EnhancedRTDS:
     def __init__(self, vt_api_key=None):
         self.port_scanner = PortScanDetector()
         self.phishing_detector = PhishingDetector(vt_api_key) if vt_api_key else None
+        self.dns_detector = DNSTunnelDetector()
         
     def enhanced_packet_handler(self, packet):
         alerts = []
@@ -23,6 +25,10 @@ class EnhancedRTDS:
             if phish_alert:
                 alerts.append(phish_alert)
         
+        # DNS tunnel detection
+        dns_alerts = self.dns_detector.detect_tunnel(packet)
+        alerts.extend(dns_alerts)
+        
         return alerts
 
 def start_enhanced_monitoring(interface=None, vt_api_key=None):
@@ -36,6 +42,8 @@ def start_enhanced_monitoring(interface=None, vt_api_key=None):
     print("🛡️ Enhanced RTDS Started - Multi-Attack Detection")
     print("✓ Port Scanning Detection: Active")
     print(f"✓ Phishing Detection: {'Active' if vt_api_key else 'Disabled (No API Key)'}")
+    print("✓ DNS Tunneling Detection: Active")
+    print("✓ DDoS & MITM Detection: Active")
     
     sniff(iface=interface, prn=packet_handler)
 

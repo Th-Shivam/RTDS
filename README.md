@@ -71,8 +71,9 @@
 | **DDoS Volumetric** | 📊 Packet Rate Monitoring | 90%+ | ✅ Active |
 | **SYN Flood** | 🌊 TCP Flag Analysis | 92%+ | ✅ Active |
 | **Gratuitous ARP** | 📡 Suspicious ARP Detection | 88%+ | ✅ Active |
-| **Port Scanning** | 🔭 Multi-port Detection | - | 🔄 Upcoming |
-| **DNS Tunneling** | 🌐 Query Analysis | - | 🔄 Upcoming |
+| **Port Scanning** | 🔭 Multi-port Detection | 85%+ | ✅ Active |
+| **DNS Tunneling** | 🌐 Entropy & Pattern Analysis | 90%+ | ✅ Active |
+| **Phishing URLs** | 🎣 VirusTotal Integration | 88%+ | ✅ Active |
 
 ---
 
