@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-from rtds_monitor import *  # Import existing RTDS functionality
+from rtds_monitor import *
 from port_scan_detector import PortScanDetector
 from phishing_detector import PhishingDetector
-from dns_tunnel_detector import DNSTunnelDetector
+from dns_tunnel_detector import AdvancedDNSTunnelDetector
 import threading
 
 class EnhancedRTDS:
     def __init__(self, vt_api_key=None):
         self.port_scanner = PortScanDetector()
         self.phishing_detector = PhishingDetector(vt_api_key) if vt_api_key else None
-        self.dns_detector = DNSTunnelDetector()
+        self.dns_detector = AdvancedDNSTunnelDetector()
         
     def enhanced_packet_handler(self, packet):
         alerts = []
@@ -19,13 +19,13 @@ class EnhancedRTDS:
         if port_alert:
             alerts.append(port_alert)
         
-        # Phishing detection (if API key provided)
+        # Phishing detection
         if self.phishing_detector:
             phish_alert = self.phishing_detector.analyze_packet(packet)
             if phish_alert:
                 alerts.append(phish_alert)
         
-        # DNS tunnel detection
+        # Advanced DNS tunnel detection
         dns_alerts = self.dns_detector.detect_tunnel(packet)
         alerts.extend(dns_alerts)
         
@@ -39,10 +39,13 @@ def start_enhanced_monitoring(interface=None, vt_api_key=None):
         for alert in alerts:
             print(f"[{time.strftime('%H:%M:%S')}] {alert}")
     
-    print("🛡️ Enhanced RTDS Started - Multi-Attack Detection")
+    print("🛡️ Enhanced RTDS Started - Advanced Multi-Attack Detection")
     print("✓ Port Scanning Detection: Active")
     print(f"✓ Phishing Detection: {'Active' if vt_api_key else 'Disabled (No API Key)'}")
-    print("✓ DNS Tunneling Detection: Active")
+    print("✓ Advanced DNS Tunneling Detection: Active")
+    print("  • ML-like pattern analysis")
+    print("  • Multi-encoding detection") 
+    print("  • Session tracking & burst detection")
     print("✓ DDoS & MITM Detection: Active")
     
     sniff(iface=interface, prn=packet_handler)
